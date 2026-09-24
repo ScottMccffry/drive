@@ -36,7 +36,7 @@ packages = [
 ]
 
 [tool.bench.frappe-dependencies]
-frappe = ">=15.0.0-dev,<=17.0.0-dev"
+frappe = ">=15.0.0,<17.0.0"
 
 [tool.bench.assets]
 build_dir = "./frontend"
