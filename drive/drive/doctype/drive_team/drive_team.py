@@ -56,11 +56,14 @@ class DriveTeam(Document):
             (user_directory_path / "embeds").mkdir(exist_ok=True)
 
     def on_trash(self):
-        user_settings = frappe.get_list("Drive Settings", {"default_team": self.name}, pluck="name")
-        for s in user_settings:
-            d = frappe.get_doc("Drive Settings", s)
-            d.default_team = ""
-            d.save()
+        # Current Drive Settings no longer stores a default team. Keep cleanup
+        # for older/custom schemas without querying a removed field on v16.
+        if frappe.get_meta("Drive Settings").has_field("default_team"):
+            user_settings = frappe.get_list("Drive Settings", {"default_team": self.name}, pluck="name")
+            for s in user_settings:
+                d = frappe.get_doc("Drive Settings", s)
+                d.default_team = ""
+                d.save()
         frappe.db.commit()
 
         try:
