@@ -555,6 +555,8 @@ def remove_or_restore(entity_names: list[str] | str):
     manager = FileManager()
 
     def depth_zero_toggle_status(doc):
+        if doc.status not in (STATUS_ACTIVE, STATUS_TRASHED):
+            frappe.throw("Ce fichier a été supprimé définitivement.", frappe.ValidationError)
         if not user_has_permission(doc, "write"):
             raise frappe.PermissionError("You do not have permission to remove this file")
         if doc.status == STATUS_ACTIVE:
@@ -596,6 +598,14 @@ def delete_entities(entity_names: list[str] | None = None, clear_all: bool = Fal
 
     for entity in entity_names:
         frappe.get_doc("File", entity).permanent_delete()
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_selected_files(team: str, files: list[dict] | str, confirmed: bool = False):
+    """Explicit UI deletion of an exact file selection; never accepts folders."""
+    from drive.utils.file_actions import delete_selected_files as delete_selection
+
+    return delete_selection(team, files, confirmed)
 
 
 @frappe.whitelist()
