@@ -37,6 +37,28 @@ def get_team_access(entity):
 
 @frappe.whitelist(allow_guest=True)
 def get_user_access(entity: str | Document | frappe._dict, user: str = None, team: bool = False):
+    access = _get_user_access(entity, user, team)
+    # Workspace policies may only narrow the permissions calculated by Drive.
+    if not team:
+        if isinstance(entity, str):
+            entity = frappe.get_cached_doc("File", entity)
+        access = restrict_access(entity, user or frappe.session.user, access)
+    return access
+
+
+def restrict_access(entity, user, access):
+    for hook in frappe.get_hooks("drive_access_restrictions"):
+        ceiling = frappe.get_attr(hook)(entity=entity, user=user)
+        if ceiling is not None:
+            access = dict(access)
+            for key in NO_ACCESS:
+                access[key] = int(bool(access.get(key)) and bool(ceiling.get(key)))
+            if not access.get("write"):
+                access["type"] = "guest"
+    return access
+
+
+def _get_user_access(entity, user=None, team=False):
     """
     Return the user specific permissions for an entity. Toggle `team` to check team permission.
     """
@@ -254,8 +276,10 @@ def user_has_permission(doc, ptype, user=None, team=0):
 
     if not user:
         user = frappe.session.user
-    if user == "Administrator" or ptype == "create":
+    if user == "Administrator":
         return True
+    if ptype == "create":
+        return bool(restrict_access(doc, user, {key: 1 for key in NO_ACCESS})["upload"])
     if ptype not in ("read", "write", "comment", "share", "upload"):
         # Should ideally deflect to Framework
         ptype = "write"
