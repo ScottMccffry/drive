@@ -436,7 +436,8 @@ def get_query_data(
         hide_storage_key(r)
         r |= get_user_access(name)
 
-    return res
+    # A workspace restriction can revoke a formerly owned or explicitly shared file.
+    return [row for row in res if row.get("read")]
 
 
 @frappe.whitelist()
