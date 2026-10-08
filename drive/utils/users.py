@@ -100,8 +100,15 @@ def assign_drive_role_and_create_settings(user, method: str) -> None:
 
     # Created as the new user so the team is owned by and shared with them.
     original_user = frappe.session.user
+    # set_user resets sid, session.data and form_dict as well as the identity.
+    # Restoring only the username corrupts an active HTTP session after signup.
+    original_session = dict(frappe.local.session)
+    original_form_dict = frappe.local.form_dict
     try:
         frappe.set_user(user_name)
         create_team(user=user_name, team_name=user_name, personal=1)
     finally:
         frappe.set_user(original_user)
+        frappe.local.session.clear()
+        frappe.local.session.update(original_session)
+        frappe.local.form_dict = original_form_dict
