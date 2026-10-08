@@ -177,7 +177,7 @@ class FileManager:
             parent = (
                 Path(storage_key(frappe.get_value("File", entity.folder, "file_url") or ""))
                 if not hasattr(entity, "parent_path")
-                else Path(entity.parent_path)
+                else Path(storage_key(entity.parent_path))
             )
             if embed:
                 return parent / ".embeds" / entity.file_name
