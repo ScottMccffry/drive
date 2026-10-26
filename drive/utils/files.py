@@ -405,12 +405,20 @@ class FileManager:
             else:
                 cur_path = self.site_folder / src_key
                 dest_path = self.site_folder / dest_key
+                if not cur_path.exists():
+                    raise RuntimeError("Drive source content is missing")
+                if cur_path == dest_path:
+                    return new_path
+                if dest_path.exists():
+                    raise RuntimeError("Drive destination already has content")
+                if not dest_path.parent.is_dir():
+                    raise RuntimeError("Drive destination folder is missing")
                 if cur_path.is_dir():
                     shutil.move(cur_path, dest_path)
                 else:
                     cur_path.rename(dest_path)
-        except BaseException as e:
-            frappe.throw("This file doesn't exist on disk.")
+        except OSError as e:
+            raise RuntimeError("Drive storage move failed") from e
         return new_path
 
     def delete_file(self, entity):

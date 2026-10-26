@@ -234,7 +234,6 @@ class File(FrappeFile):
             if perm_name:
                 frappe.delete_doc("Drive Permission", perm_name, ignore_permissions=True)
 
-    @_update_modified
     def move(self, new_parent=None, new_team=None):
         """
         Move file to a new folder.
@@ -275,33 +274,62 @@ class File(FrappeFile):
             elif new_team != child.team:
                 child.move(self.name, new_team)
 
-        if new_parent != self.folder:
-            old_folder_name = frappe.db.get_value("File", self.folder, "file_name")
-            new_folder_name = frappe.db.get_value("File", new_parent, "file_name")
-            full_name = frappe.db.get_value("User", frappe.session.user, "full_name")
-            create_new_activity_log(
-                entity=self.name,
-                activity_type="move",
-                activity_message=f"{full_name} moved {self.file_name} to {new_folder_name}",
-                document_field="folder",
-                field_old_value=old_folder_name,
-                field_new_value=new_folder_name,
-            )
+        # A failed disk move must not leave folder sizes/activity committed, and a
+        # failed database save must not leave the blob at an orphaned path.
+        savepoint = f"drive_move_{frappe.generate_hash(length=10)}"
+        frappe.db.savepoint(savepoint)
+        old_url = str(self.file_url or "")
+        old_team = self.team
+        old_folder = self.folder
+        old_file_name = self.file_name
+        moved_path = None
+        try:
+            if new_parent != self.folder:
+                old_folder_name = frappe.db.get_value("File", self.folder, "file_name")
+                new_folder_name = frappe.db.get_value("File", new_parent, "file_name")
+                full_name = frappe.db.get_value("User", frappe.session.user, "full_name")
+                create_new_activity_log(
+                    entity=self.name,
+                    activity_type="move",
+                    activity_message=f"{full_name} moved {self.file_name} to {new_folder_name}",
+                    document_field="folder",
+                    field_old_value=old_folder_name,
+                    field_new_value=new_folder_name,
+                )
 
-            update_file_size(self.folder, -self.file_size)
-            update_file_size(new_parent, +self.file_size)
-            self.folder = new_parent
-            self.file_name = get_new_file_name(self.file_name, new_parent, self.is_folder, self.name)
+                update_file_size(self.folder, -self.file_size)
+                update_file_size(new_parent, +self.file_size)
+                self.folder = new_parent
+                self.file_name = get_new_file_name(self.file_name, new_parent, self.is_folder, self.name)
 
-        self.team = new_team
+            self.team = new_team
 
-        # Update all the children's paths
-        if not self.manager.flat and not self._not_in_disk():
-            new_path = self.manager.get_disk_path(self)
-            self.manager.move(self, str(new_path))
-            self.recursive_path_move(self.file_url, new_path)
-            self.file_url = new_path
-        self.save()
+            # Keep file_url a string: passing a pathlib.Path into Document.save
+            # can fail after the physical rename has already succeeded.
+            if not self.manager.flat and not self._not_in_disk():
+                new_path = str(self.manager.get_disk_path(self))
+                self.manager.move(self, new_path)
+                moved_path = new_path
+                self.recursive_path_move(old_url, new_path)
+            self.save()
+            self.db_set("file_modified", now())
+        except Exception:
+            if moved_path is not None:
+                try:
+                    self.manager.move(
+                        frappe._dict(file_url=moved_path, team=new_team), old_url
+                    )
+                except Exception:
+                    frappe.log_error(
+                        frappe.get_traceback(),
+                        f"Drive move rollback failed for {self.name}",
+                    )
+            frappe.db.rollback(save_point=savepoint)
+            self.team = old_team
+            self.folder = old_folder
+            self.file_name = old_file_name
+            self.file_url = old_url
+            raise
 
         return frappe.get_value("File", new_parent, ["file_name", "team", "name", "folder"], as_dict=True)
 
